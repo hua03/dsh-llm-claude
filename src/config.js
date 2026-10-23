@@ -31,6 +31,17 @@ export const Config = z.object({
     })
     .default({})
     .volatile(),
+  // Auto-review hard-codes the session route. A Claude Code-only gateway rejects
+  // that reviewer, so reroute the reviewer to a plain API model.
+  review: z
+    .object({
+      enabled: z.boolean().default(true),
+      provider: z.string().default('deepseek-account'),
+      model: z.string().default('deepseek-flash'),
+      reasoningEffort: z.union(['off', 'low', 'high', 'max']).default('off'),
+    })
+    .default({})
+    .volatile(),
   maxRequestImagesBytes: z.number().step(1).min(1).default(20971520),
   debug: z.boolean().default(false).volatile(),
 })
@@ -77,6 +88,20 @@ export function resolveInterceptOptions(options) {
       throw new Error('llm-claude: provider filters must be non-empty route keys')
     }
   }
+  const review = options.review ?? {}
+  const reviewProvider = review.provider ?? 'deepseek-account'
+  const reviewModel = review.model ?? 'deepseek-flash'
+  if (typeof reviewProvider !== 'string' || reviewProvider.length === 0) {
+    throw new Error('llm-claude: review.provider must be a non-empty provider route key')
+  }
+  if (typeof reviewModel !== 'string' || reviewModel.length === 0) {
+    throw new Error('llm-claude: review.model must be a non-empty model id')
+  }
+  const reviewEffort = review.reasoningEffort ?? 'off'
+  if (!['off', 'low', 'high', 'max'].includes(reviewEffort)) {
+    throw new Error('llm-claude: review.reasoningEffort must be off, low, high or max')
+  }
+
   const maxRequestImagesBytes = options.maxRequestImagesBytes ?? 20971520
   if (!Number.isInteger(maxRequestImagesBytes) || maxRequestImagesBytes <= 0) {
     throw new Error('llm-claude: maxRequestImagesBytes must be a positive integer')
@@ -86,6 +111,12 @@ export function resolveInterceptOptions(options) {
     enabled: options.enabled !== false,
     includeProviders,
     excludeProviders,
+    review: {
+      enabled: review.enabled !== false,
+      provider: reviewProvider,
+      model: reviewModel,
+      reasoningEffort: reviewEffort,
+    },
     maxRequestImagesBytes,
     debug: options.debug === true,
     compat: {

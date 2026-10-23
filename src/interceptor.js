@@ -17,7 +17,7 @@
  * @module dsh-llm-claude/interceptor
  */
 
-import { assertUsableApiKey, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { findProviderRoute } from './routes.js'
 import { streamClaude } from './claude-stream.js'
@@ -28,6 +28,23 @@ async function resolveCredential(ctx, ref) {
   if (credentials !== undefined && credentials !== null) return credentials.resolve(credentialRef(ref))
   const value = process.env[ref]
   return value === undefined || value === '' ? undefined : { value }
+}
+
+/** The fixed opening of auto-review's REVIEW_POLICY system prompt. */
+const REVIEW_MARKER = 'REVIEW_POLICY\n'
+
+/**
+ * Whether this request is auto-review's internal reviewer call. Auto-review
+ * hard-codes the session route, so a Claude gateway that only accepts Claude
+ * Code clients rejects its reviewer; detect it structurally (fixed policy prompt,
+ * no tool declarations) and reroute it to a plain API model instead.
+ */
+function isReviewRequest(options) {
+  return (
+    typeof options.system === 'string' &&
+    options.system.startsWith(REVIEW_MARKER) &&
+    options.tools === undefined
+  )
 }
 
 /** Whether this request is one the compat transform must take over. */
@@ -54,7 +71,27 @@ export function createInterceptor(ctx, config) {
     ctx.logger?.warn?.(message)
   }
 
+  /** Send one reviewer request to the configured plain-API model. */
+  function reviewRoute(options, next) {
+    const review = config.review
+    if (!review.enabled) return next()
+    if (options.provider === review.provider && options.model === review.model) return next()
+    const providers = ctx.llm?.listProviders?.()
+    if (Array.isArray(providers) && !providers.some((provider) => provider.id === review.provider)) {
+      warnOnce(`llm-claude: review provider "${review.provider}" is not registered; reviewer stays on the session route`)
+      return next()
+    }
+    if (config.debug) ctx.logger?.info?.(`llm-claude: review -> ${review.provider}/${review.model}`)
+    return ctx.llm.stream({
+      ...options,
+      provider: review.provider,
+      model: review.model,
+      ...(review.reasoningEffort === undefined ? {} : { reasoningEffort: review.reasoningEffort }),
+    })
+  }
+
   return function intercept(options, next) {
+    if (isReviewRequest(options)) return reviewRoute(options, next)
     if (!shouldIntercept(options, config)) return next()
     const route = findProviderRoute(ctx, options.provider)
     if (route === undefined) return next()
@@ -68,16 +105,6 @@ export function createInterceptor(ctx, config) {
     const entry = connection.models.find((model) => model.id === options.model)
     if (entry === undefined) return next()
 
-    // A loop-built request is the agent conversation. Hand-built requests are
-    // internal one-shot calls (auto-review, session title, compaction) whose
-    // prompts are protocols of their own: they still need the gateway disguise
-    // (headers/metadata), but injecting the agent persona or a thinking default
-    // there changes what those callers asked for. auto-review in particular
-    // requires one JSON object, and a persona prompt made it answer as a coding
-    // agent instead.
-    const loopRequest = isAgentLoopRequest(options)
-    const compat = loopRequest ? config.compat : { ...config.compat, identityBlocks: false, loop: false }
-
     return (async function* () {
       const resolved = await resolveCredential(ctx, connection.apiKeyEnv)
       if (resolved === undefined) {
@@ -87,7 +114,7 @@ export function createInterceptor(ctx, config) {
       }
       const apiKey = assertUsableApiKey(resolved.value, 'llm-claude', connection.apiKeyEnv)
       if (config.debug) ctx.logger?.info?.(`llm-claude: intercepting ${options.provider}/${options.model}`)
-      yield* streamClaude(options, connection, entry, compat, { apiKey }, {
+      yield* streamClaude(options, connection, entry, config.compat, { apiKey }, {
         attachments: ctx.get('attachments'),
         deviceId: config.deviceId,
         maxRequestImagesBytes: config.maxRequestImagesBytes,

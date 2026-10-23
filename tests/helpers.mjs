@@ -160,9 +160,10 @@ export function routeProfile(baseURL, overrides = {}) {
   }
 }
 
-/** Interceptor over a fake loader entry `llm-pi-ai` and a stub credential store. */
+/** Interceptor over a fake loader entry `llm-pi-ai`, a stub credential store and a fake LLM runtime. */
 export function mount({ providers, credential = 'sk-test', config = {}, attachments } = {}) {
   const listeners = new Map()
+  const reroutes = []
   const ctx = {
     logger: { info() {}, warn() {} },
     loader: {
@@ -180,10 +181,21 @@ export function mount({ providers, credential = 'sk-test', config = {}, attachme
     on(event, listener) {
       listeners.set(event, listener)
     },
+    llm: {
+      listProviders() {
+        return Object.keys(providers ?? {}).map((id) => ({ id, name: id }))
+      },
+      stream(options) {
+        reroutes.push(options)
+        return (async function* () {
+          yield { type: 'rerouted', provider: options.provider, model: options.model }
+        })()
+      },
+    },
   }
   const resolved = resolveInterceptOptions(plainOptions(Config(config)))
   const handle = createInterceptor(ctx, { ...resolved, deviceId: () => 'device-test' })
-  return { ctx, handle, listeners }
+  return { ctx, handle, listeners, reroutes }
 }
 
 /** Passthrough marker: proves the interceptor did not take the request over. */

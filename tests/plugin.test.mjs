@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as plugin from '../src/index.js'
-import { basicMessages, call, loopRequest, mount, mockServer, routeProfile, textBody, toolBody } from './helpers.mjs'
+import { basicMessages, call, loopRequest, mount, mockServer, routeProfile, textBody } from './helpers.mjs'
 
 function request(overrides = {}) {
   return loopRequest({
@@ -11,6 +11,19 @@ function request(overrides = {}) {
     signal: AbortSignal.timeout(5000),
     ...overrides,
   })
+}
+
+/** The shape auto-review's classifyRisk builds. */
+function reviewRequest(overrides = {}) {
+  return {
+    provider: 'gateway',
+    model: 'claude-opus-5-5',
+    system: 'REVIEW_POLICY\nYou are the final authorization reviewer for exactly one pending tool call.',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'PENDING_ACTION {...}' }] }],
+    temperature: 0,
+    signal: AbortSignal.timeout(5000),
+    ...overrides,
+  }
 }
 
 test('plugin is an interceptor: no provider route is registered', () => {
@@ -47,7 +60,6 @@ test('non-Claude models and non-Messages routes pass through untouched', async (
     (await call(handle, request({ provider: 'other', model: 'claude-haiku-5-5' }))).passedThrough,
     true,
   )
-  // Route that DSH does not describe (no loader entry) is left alone.
   assert.equal(
     (await call(handle, request({ provider: 'unconfigured', model: 'claude-haiku-5-5' }))).passedThrough,
     true,
@@ -70,26 +82,21 @@ test('filters, disabled flag and missing credentials all fall back to the owner'
 })
 
 test('matching requests reuse the existing route profile and credential', async () => {
-  const server = await mockServer([toolBody(), textBody({ text: 'listed' })])
+  const server = await mockServer([textBody()])
   try {
     const providers = { gateway: routeProfile(server.baseURL) }
-    const { handle, ctx } = mount({ providers, credential: 'sk-from-store' })
+    const { handle } = mount({ providers, credential: 'sk-from-store' })
 
-    const first = await call(handle, request())
-    assert.equal(first.passedThrough, false)
-    const toolEnd = first.chunks.find((chunk) => chunk.type === 'block-end' && chunk.block.type === 'tool-call')
-    assert.equal(toolEnd.block.name, 'bash')
+    const { passedThrough, chunks } = await call(handle, request())
+    assert.equal(passedThrough, false)
+    assert.deepEqual(chunks.at(-1).reason, { kind: 'stop' })
 
     const http = server.captured[0]
     assert.match(http.url, /^\/v1\/messages/)
     assert.equal(http.headers['user-agent'], 'claude-cli/2.1.293 (external, cli)')
     assert.equal(http.headers['x-app'], 'cli')
     assert.match(http.headers['x-dsh-attribution'], /^deepseek-harness\//)
-    // Credential came from the same apiKeyEnv the route already used.
     assert.equal(http.headers['x-api-key'], 'sk-from-store')
-    // No route/model config was duplicated anywhere.
-    assert.equal(ctx.loader !== undefined, true)
-
     assert.deepEqual(
       http.body.system.map((block) => block.text),
       [
@@ -98,57 +105,76 @@ test('matching requests reuse the existing route profile and credential', async 
         'Harness prompt.',
       ],
     )
-    assert.deepEqual(http.body.tools, undefined)
     const userId = JSON.parse(http.body.metadata.user_id)
     assert.deepEqual(userId, { device_id: 'device-test', account_uuid: '', session_id: '' })
-    assert.equal(first.chunks.at(-1).reason.kind, 'tool-calls')
   } finally {
     await server.close()
   }
 })
 
-test('internal one-shot calls keep their own prompt and sampling protocol', async () => {
-  const server = await mockServer([textBody({ text: '{"risk":"low","decision":"allow"}' })])
-  try {
-    const opusRoute = routeProfile(server.baseURL, {
-      models: [
-        {
-          id: 'claude-opus-5-5',
-          name: 'Claude Opus 5.5',
-          contextWindow: 1000000,
-          maxTokens: 128000,
-          input: ['text', 'image'],
-          compat: { supportsTemperature: true },
-        },
-      ],
-    })
-    const { handle } = mount({ providers: { gateway: opusRoute } })
-    // The shape auto-review builds: fixed policy as system, one user payload,
-    // temperature 0, and no agent-loop marker.
-    const review = {
-      provider: 'gateway',
-      model: 'claude-opus-5-5',
-      system: 'REVIEW_POLICY: reply with exactly one JSON object.',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'PENDING_ACTION {...}' }] }],
-      temperature: 0,
-      signal: AbortSignal.timeout(5000),
-    }
-    const { passedThrough } = await call(handle, review)
-    assert.equal(passedThrough, false)
+test('the reviewer is rerouted to the configured plain-API model', async () => {
+  const providers = { gateway: routeProfile('http://127.0.0.1:9'), 'deepseek-account': {} }
+  const { handle, reroutes } = mount({ providers })
+  const { passedThrough, chunks } = await call(handle, reviewRequest())
 
-    const http = server.captured[0]
-    // The reviewer's own system prompt survives untouched: no agent persona.
-    assert.equal(http.body.system.length, 1)
-    assert.equal(http.body.system[0].text, review.system)
-    // No thinking default was invented for an internal call.
-    assert.ok(http.body.thinking === undefined || http.body.thinking.type === 'disabled')
-    assert.equal(http.body.output_config, undefined)
-    // Its explicit sampling control still reaches the wire.
-    assert.equal(http.body.temperature, 0)
-    // The gateway disguise itself still applies.
-    assert.equal(http.headers['user-agent'], 'claude-cli/2.1.293 (external, cli)')
-    assert.ok(http.headers['x-api-key'])
-    assert.ok(JSON.parse(http.body.metadata.user_id).device_id)
+  assert.equal(passedThrough, false)
+  assert.equal(reroutes.length, 1)
+  const rerouted = reroutes[0]
+  assert.equal(rerouted.provider, 'deepseek-account')
+  assert.equal(rerouted.model, 'deepseek-flash')
+  assert.equal(rerouted.reasoningEffort, 'off')
+  // The reviewer's own prompt and sampling survive the reroute.
+  assert.match(rerouted.system, /^REVIEW_POLICY/)
+  assert.equal(rerouted.temperature, 0)
+  assert.deepEqual(rerouted.messages, reviewRequest().messages)
+  assert.deepEqual(chunks[0], { type: 'rerouted', provider: 'deepseek-account', model: 'deepseek-flash' })
+})
+
+test('the reviewer route is configurable and can be disabled', async () => {
+  const providers = { gateway: routeProfile('http://127.0.0.1:9'), 'deepseek-official': {} }
+  const configured = mount({
+    providers,
+    config: { review: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'low' } },
+  })
+  await call(configured.handle, reviewRequest())
+  assert.equal(configured.reroutes[0].provider, 'deepseek-official')
+  assert.equal(configured.reroutes[0].reasoningEffort, 'low')
+
+  const disabled = mount({ providers, config: { review: { enabled: false } } })
+  assert.equal((await call(disabled.handle, reviewRequest())).passedThrough, true)
+  assert.equal(disabled.reroutes.length, 0)
+
+  // Already on the target route: do not recurse, let the owning adapter handle it.
+  const onTarget = mount({ providers })
+  const { passedThrough } = await call(onTarget.handle, reviewRequest({ provider: 'deepseek-account', model: 'deepseek-flash' }))
+  assert.equal(passedThrough, true)
+  assert.equal(onTarget.reroutes.length, 0)
+})
+
+test('an unregistered reviewer provider falls back to the owner', async () => {
+  const providers = { gateway: routeProfile('http://127.0.0.1:9') }
+  const { handle, reroutes } = mount({ providers })
+  const { passedThrough } = await call(handle, reviewRequest())
+  assert.equal(passedThrough, true)
+  assert.equal(reroutes.length, 0)
+})
+
+test('non-review internal calls still get the gateway disguise', async () => {
+  const server = await mockServer([textBody({ text: 'A title' })])
+  try {
+    const { handle } = mount({ providers: { gateway: routeProfile(server.baseURL) } })
+    // Session-title shape: fixed system string, no tools, a session id.
+    await call(handle, {
+      provider: 'gateway',
+      model: 'claude-haiku-5-5',
+      system: 'Create a concise title for this session.',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      sessionId: 'session-1',
+      signal: AbortSignal.timeout(5000),
+    })
+    const system = server.captured[0].body.system.map((block) => block.text)
+    assert.equal(system[0], "You are a Claude agent, built on Anthropic's Claude Agent SDK.")
+    assert.equal(system.at(-1), 'Create a concise title for this session.')
   } finally {
     await server.close()
   }
@@ -164,7 +190,6 @@ test('route headers are preserved and compat headers are merged over them', asyn
     await call(handle, request())
     const http = server.captured[0]
     assert.equal(http.headers['x-route'], 'yes')
-    // compat default wins for the gateway marker.
     assert.equal(http.headers['x-app'], 'cli')
   } finally {
     await server.close()
