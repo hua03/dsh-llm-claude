@@ -48,7 +48,7 @@ export function toPiModel(conn, entry, compat) {
 }
 
 /** Resolve the wire-level reasoning level for one request. */
-export function resolveEffort(requested, conn, piModel, compat) {
+export function resolveEffort(requested, conn, piModel, compat, fallbackEffort) {
   const supported = getSupportedThinkingLevels(piModel)
   if (requested !== undefined) {
     if (requested === 'off') return { effort: undefined, disableThinking: true }
@@ -61,7 +61,7 @@ export function resolveEffort(requested, conn, piModel, compat) {
     return { effort: requested, disableThinking: false }
   }
   if (compat.thinkingMode === 'off') return { effort: undefined, disableThinking: true }
-  const fallback = conn.reasoningEffort
+  const fallback = fallbackEffort
   return {
     effort: fallback !== undefined && supported.includes(fallback) ? fallback : undefined,
     disableThinking: false,
@@ -146,7 +146,10 @@ async function* withIdleTimeout(events, timeoutMs, signal) {
  */
 export async function* streamClaude(options, conn, entry, compat, auth, deps) {
   const piModel = toPiModel(conn, entry, compat)
-  const { effort, disableThinking } = resolveEffort(options.reasoningEffort, conn, piModel, compat)
+  // Auxiliary calls (session title, compaction) must not acquire thinking just
+  // because the route has a default effort.
+  const fallbackEffort = options.purpose === undefined ? conn.reasoningEffort : undefined
+  const { effort, disableThinking } = resolveEffort(options.reasoningEffort, conn, piModel, compat, fallbackEffort)
   const { context } = await toPiContext(options, {
     attachments: deps.attachments,
     maxRequestImagesBytes: deps.maxRequestImagesBytes ?? 20971520,

@@ -104,6 +104,19 @@ test('adaptive thinking is requested and its signature is replayed', async () =>
   }
 })
 
+test('auxiliary calls do not acquire thinking from the route default', async () => {
+  const server = await mockServer([textBody({ text: 'title' })])
+  try {
+    const { handle } = mount({ providers: { gateway: routeProfile(server.baseURL) } })
+    await call(handle, request({ model: 'claude-sonnet-5-5', purpose: 'session-title' }))
+    const thinking = server.captured[0].body.thinking
+    assert.ok(thinking === undefined || thinking.type === 'disabled')
+    assert.equal(server.captured[0].body.output_config, undefined)
+  } finally {
+    await server.close()
+  }
+})
+
 test('gateway failures keep their retry classification', async () => {
   const server = await mockServer([
     { status: 429, body: { type: 'error', error: { type: 'rate_limit_error', message: 'rate limited' } } },

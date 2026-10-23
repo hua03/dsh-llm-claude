@@ -50,7 +50,7 @@ dsh plugin --profile web add file:/Users/huahao/workspace/Project/github/dsh-llm
 | 历史一致 | 声明与历史 `tool_use` 同名同参；响应侧再还原成 harness 名字 |
 | Bash 时间单位 | 对外 `timeout`(ms) ↔ harness `timeoutMs` |
 | `toolSchema: claude-code` | Edit 换成 Claude Code schema（无 `replace_all`）、Bash 暴露 `timeout`、Grep 追加行为说明；默认 `names-only` 保留 harness 的 `workdir`/`sandbox_permissions` |
-| thinking | 请求显式 `off` 或 `compat.thinking: off` 时强制 `thinking:{type:"disabled"}` 且不回传历史 thinking；否则沿用路由的 `reasoning` 默认（无则 `high`） |
+| thinking | 请求显式 `off` 或 `compat.thinking: off` 时强制 `thinking:{type:"disabled"}` 且不回传历史 thinking；普通对话沿用路由的 `reasoning` 默认（无则 `high`）；标题/压缩等辅助调用不套用该默认 |
 
 **已知偏离**：网关要求 `User-Agent: claude-cli/...`，而 DSH 归因契约要求每个 provider 请求带 harness UA。接管时把 UA 让给网关，并用 `x-dsh-attribution` 头保留 harness 身份。
 
@@ -81,12 +81,12 @@ dsh plugin --profile web add file:/Users/huahao/workspace/Project/github/dsh-llm
 ## 验证
 
 ```bash
-node --test tests/*.test.mjs     # 37 个单元/集成测试（本地 mock SSE 全链路）
+node --test tests/*.test.mjs     # 38 个单元/集成测试（本地 mock SSE 全链路）
 node scripts/smoke.mjs           # 打印接管后的真实请求体/头与 chunk
 node scripts/smoke.mjs --thinking
 ```
 
-覆盖：触发/透传判定、路由配置与凭据复用、compat 规则与幂等、replay 签名回放/降级、事件→chunk、错误分类、两轮工具往返、adaptive thinking、429 分类、图片 base64/预算/offload、`claude-code` schema 模式。
+覆盖：触发/透传判定、路由配置与凭据复用、compat 规则与幂等、replay 签名回放/降级、事件→chunk、错误分类、两轮工具往返、adaptive thinking（含辅助调用不强制思考）、429 分类、图片 base64/预算/offload、`claude-code` schema 模式。
 
 真机验证（需要网关 key；本机未内置）：
 
