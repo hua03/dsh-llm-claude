@@ -16,25 +16,44 @@ DSH runtime (LlmRuntime)  →  ClaudeAdapter  →  pi-ai anthropic-messages  →
 
 ## 安装
 
+本包声明了 `dsh.bundle.patch`，所以 `dsh plugin add` 会把它加进 `dsh.profile.bundles`，并自动应用包内 `cordis.patch.yml` 的默认路由——**不需要手改 profile 的 yml**：
+
 ```bash
-# 1. 安装包到 profile（普通插件包，只会作为依赖装上）
 dsh plugin --profile web add file:/Users/huahao/workspace/Project/github/dsh-llm-claude
-
-# 2. 在 ~/.dsh/profiles/web/cordis.patch.yml 里 insert 一行（普通包不会自动挂载）
-#    参考 cordis.patch.yml.example
-
-# 3. 重启 dsh web
+# 重启 dsh web
 ```
 
-凭据放在环境或 credentials seam，配置里只写引用名：
+默认路由是 该网关（`provider: claude-gateway`、`baseURL: https://gateway.example.com/api`、`claudeCodeCompat.mode: auto`）。要换成官方 API、gateway 或再挂一条路由，见 `cordis.patch.yml.example`（id-targeted 覆盖或第二个 insert）。
+
+### 凭据
+
+`apiKeyEnv` 只是一 个**引用名**，秘密值由 DSH 的 credentials seam 解析（优先级：托管存储 > 启动环境快照 > 项目 `.env` > `$DSH_HOME/.env`）。插件不会把 key 写进配置，也不会打印它。
+
+本机 `~/.dsh/.credentials.yaml` 里已经有两个可复用的 ref：
+
+| ref | 用途 |
+|---|---|
+| `GATEWAY_API_KEY` | 接 `https://api.gateway.net` 时可以**直接复用**，零新增 |
+| `DEEPSEEK_API_KEY` | DeepSeek 官方 |
+
+该网关 是另一个网关、另一个 key，需要单独给一次（三选一）：
 
 ```bash
-# 启动前导出（DSH 的环境是启动快照，启动后再 export 不生效）
+# A. 写进 $DSH_HOME/.env（推荐，支持的环境层）
+echo 'GATEWAY_API_KEY=sk-...' >> ~/.dsh/.env
+
+# B. 启动前导出（环境是启动快照，启动后再 export 不生效）
 export GATEWAY_API_KEY=sk-...
 dsh web
 ```
 
-或写进 `~/.dsh/.env` / 项目的 `.env`（优先级：托管存储 > 启动环境快照 > 项目 .env > `$DSH_HOME/.env`）。
+```yaml
+# C. 若接的是 gateway 的 Claude，直接复用已有 ref，不新增任何密钥
+- id: llm-claude
+  config:
+    baseURL: https://api.gateway.net
+    apiKeyEnv: GATEWAY_API_KEY
+```
 
 ## 配置
 

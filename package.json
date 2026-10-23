@@ -11,6 +11,7 @@
   },
   "files": [
     "src/**/*.js",
+    "cordis.patch.yml",
     "README.md"
   ],
   "scripts": {
@@ -32,5 +33,10 @@
     "@deepseek-ai/cosmokit": "1.8.6",
     "@deepseek-ai/schemastery": "~3.18.5",
     "@earendil-works/pi-ai": "^1.1.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }

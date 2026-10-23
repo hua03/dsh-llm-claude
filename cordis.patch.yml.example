@@ -1,6 +1,15 @@
-# Reference patch for mounting the plugin into a profile.
-# Merge into ~/.dsh/profiles/web/cordis.patch.yml (entries with an `id` only
-# modify existing rows; a new plugin must be added inside `insert`).
+# Optional overrides / extra routes for ~/.dsh/profiles/web/cordis.patch.yml.
+# The package is a bundle: `dsh plugin add` already inserts the default `llm-claude`
+# row, so this file is only needed to change that row or mount a second gateway.
+#
+# To change the default row, override it by id (do NOT insert a new one):
+#   - id: llm-claude
+#     config:
+#       baseURL: https://api.anthropic.com
+#       apiKeyEnv: ANTHROPIC_API_KEY
+#       claudeCodeCompat: { mode: off }
+#
+# The `insert` below is for a SECOND, independent route.
 
 - insert:
     - id: llm-claude-gateway
