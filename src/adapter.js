@@ -254,6 +254,12 @@ export class ClaudeAdapter extends LlmAdapter {
         ? options.temperature
         : undefined
 
+    // A consumer controller lets this adapter stop the upstream stream on idle
+    // timeout or when the caller evaporates, without touching caller ownership
+    // of its own signal.
+    const consumer = new AbortController()
+    const signal = options.signal === undefined ? consumer.signal : AbortSignal.any([options.signal, consumer.signal])
+
     const events = this.api.streamSimple(piModel, normalizeContext(context), {
       ...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
       headers: buildHeaders(conn, auth),
@@ -263,7 +269,7 @@ export class ClaudeAdapter extends LlmAdapter {
       maxTokens,
       ...(conn.cacheRetention === undefined ? {} : { cacheRetention: conn.cacheRetention }),
       ...(options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) }),
-      signal: options.signal,
+      signal,
       timeoutMs: conn.streamIdleTimeoutMs,
       maxRetries: 0,
       onPayload: (payload) =>
@@ -277,7 +283,7 @@ export class ClaudeAdapter extends LlmAdapter {
     })
 
     try {
-      yield* toStreamChunks(withIdleTimeout(events, conn.streamIdleTimeoutMs, options.signal), {
+      yield* toStreamChunks(withIdleTimeout(events, conn.streamIdleTimeoutMs, signal), {
         callerSignal: options.signal,
         requestedModel: model,
         compat: conn.compat,
@@ -287,6 +293,8 @@ export class ClaudeAdapter extends LlmAdapter {
         throw new LlmError('llm-claude context window exceeded', 'CONTEXT_WINDOW_EXCEEDED', { cause: error })
       }
       throw error
+    } finally {
+      consumer.abort('llm-claude stream consumer stopped')
     }
   }
 }
