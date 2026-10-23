@@ -34,10 +34,10 @@ async function resolveCredential(ctx, ref) {
 const REVIEW_MARKER = 'REVIEW_POLICY\n'
 
 /**
- * Whether this request is auto-review's internal reviewer call. Auto-review
- * hard-codes the session route, so a Claude gateway that only accepts Claude
- * Code clients rejects its reviewer; detect it structurally (fixed policy prompt,
- * no tool declarations) and reroute it to a plain API model instead.
+ * Whether this request is auto-review's internal reviewer call. Choosing the
+ * reviewer model belongs to a dedicated plugin (`@hua03/dsh-auto-review-model`);
+ * this plugin only declines to disguise it, because the reviewer must emit one
+ * strict JSON object and a coding-agent persona prompt breaks that protocol.
  */
 function isReviewRequest(options) {
   return (
@@ -71,27 +71,10 @@ export function createInterceptor(ctx, config) {
     ctx.logger?.warn?.(message)
   }
 
-  /** Send one reviewer request to the configured plain-API model. */
-  function reviewRoute(options, next) {
-    const review = config.review
-    if (!review.enabled) return next()
-    if (options.provider === review.provider && options.model === review.model) return next()
-    const providers = ctx.llm?.listProviders?.()
-    if (Array.isArray(providers) && !providers.some((provider) => provider.id === review.provider)) {
-      warnOnce(`llm-claude: review provider "${review.provider}" is not registered; reviewer stays on the session route`)
-      return next()
-    }
-    if (config.debug) ctx.logger?.info?.(`llm-claude: review -> ${review.provider}/${review.model}`)
-    return ctx.llm.stream({
-      ...options,
-      provider: review.provider,
-      model: review.model,
-      ...(review.reasoningEffort === undefined ? {} : { reasoningEffort: review.reasoningEffort }),
-    })
-  }
-
   return function intercept(options, next) {
-    if (isReviewRequest(options)) return reviewRoute(options, next)
+    // The reviewer's JSON protocol is not a conversation; leave it to the
+    // dedicated reviewer-model plugin (or the owning adapter).
+    if (isReviewRequest(options)) return next()
     if (!shouldIntercept(options, config)) return next()
     const route = findProviderRoute(ctx, options.provider)
     if (route === undefined) return next()

@@ -23,12 +23,5 @@
           metadataUserId: true
           toolSchema: names-only
           thinking: auto
-        # Auto-review hard-codes the session route; a Claude Code-only gateway
-        # rejects that reviewer (403), so reroute the reviewer to a plain API model.
-        review:
-          enabled: true
-          provider: deepseek-account
-          model: deepseek-flash
-          reasoningEffort: off
         maxRequestImagesBytes: 20971520
         debug: false

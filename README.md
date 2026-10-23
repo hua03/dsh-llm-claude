@@ -54,28 +54,11 @@ dsh plugin --profile web add file:/Users/huahao/workspace/Project/github/dsh-llm
 
 **已知偏离**：网关要求 `User-Agent: claude-cli/...`，而 DSH 归因契约要求每个 provider 请求带 harness UA。接管时把 UA 让给网关，并用 `x-dsh-attribution` 头保留 harness 身份。
 
-> 回归说明：早期版本把身份块与 thinking 默认也套到了 auto-review 的评审调用上，导致评审模型按"编码 agent"口吻回答、不输出协议要求的 JSON，所有工具调用被 Auto review 拦下。修复方式是只对 `markAgentLoopRequest` 标记的对话请求做完整伪装，内部一次性调用只保留网关头/metadata。
+> 回归说明：早期版本把身份块与 thinking 默认也套到了 auto-review 的评审调用上，导致评审模型按"编码 agent"口吻回答、不输出协议要求的 JSON。现在本插件对评审请求直接放行，由 `@hua03/dsh-auto-review-model` 负责换评审模型。
 
-## 审核模型（Auto review）
+## 审核模型（Auto review）不在本插件里
 
-DSH 的 auto-review 固定使用**当前会话的 provider/model**，没有配置项。当会话模型是 `gateway/claude-*` 这类只接受 Claude Code 客户端的网关时，评审请求会被网关以 403 拒绝（`The claude protocol only accepts Claude Code clients`），Auto review 于是拦下所有工具调用。
-
-本插件识别评审请求（`system` 以 `REVIEW_POLICY` 开头、无工具声明）并把它转发到可配置的普通 API 模型，默认 `deepseek-account/deepseek-flash`：
-
-```yaml
-- id: llm-claude-compat
-  config:
-    review:
-      enabled: true
-      provider: deepseek-account     # 任意已注册的 provider
-      model: deepseek-flash
-      reasoningEffort: off           # off | low | high | max
-```
-
-- 评审请求保留自己的 `REVIEW_POLICY`、`messages`、`temperature: 0`，只换 provider/model/effort；
-- 目标 provider 未注册或 `enabled: false` 时回退给原插件；
-- 已在目标路由上时直接透传，不会递归；
-- 会话本身仍然走原来的 Claude 路由（完整伪装），只有评审这一步换模型。
+评审请求不套 Claude Code 伪装（评审必须输出单个 JSON 对象，身份提示会破坏协议），本插件遇到评审请求（`system` 以 `REVIEW_POLICY` 开头且无 `tools`）会直接放行。给评审换模型是独立插件：`@hua03/dsh-auto-review-model`（默认转发到 `deepseek-account/deepseek-flash`，可配置）。
 
 ## 配置（可选）
 
@@ -104,7 +87,7 @@ DSH 的 auto-review 固定使用**当前会话的 provider/model**，没有配�
 ## 验证
 
 ```bash
-node --test tests/*.test.mjs     # 42 个单元/集成测试（本地 mock SSE 全链路）
+node --test tests/*.test.mjs     # 40 个单元/集成测试（本地 mock SSE 全链路）
 node scripts/smoke.mjs           # 打印接管后的真实请求体/头与 chunk
 node scripts/smoke.mjs --thinking
 ```

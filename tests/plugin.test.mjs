@@ -112,46 +112,7 @@ test('matching requests reuse the existing route profile and credential', async 
   }
 })
 
-test('the reviewer is rerouted to the configured plain-API model', async () => {
-  const providers = { gateway: routeProfile('http://127.0.0.1:9'), 'deepseek-account': {} }
-  const { handle, reroutes } = mount({ providers })
-  const { passedThrough, chunks } = await call(handle, reviewRequest())
-
-  assert.equal(passedThrough, false)
-  assert.equal(reroutes.length, 1)
-  const rerouted = reroutes[0]
-  assert.equal(rerouted.provider, 'deepseek-account')
-  assert.equal(rerouted.model, 'deepseek-flash')
-  assert.equal(rerouted.reasoningEffort, 'off')
-  // The reviewer's own prompt and sampling survive the reroute.
-  assert.match(rerouted.system, /^REVIEW_POLICY/)
-  assert.equal(rerouted.temperature, 0)
-  assert.deepEqual(rerouted.messages, reviewRequest().messages)
-  assert.deepEqual(chunks[0], { type: 'rerouted', provider: 'deepseek-account', model: 'deepseek-flash' })
-})
-
-test('the reviewer route is configurable and can be disabled', async () => {
-  const providers = { gateway: routeProfile('http://127.0.0.1:9'), 'deepseek-official': {} }
-  const configured = mount({
-    providers,
-    config: { review: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'low' } },
-  })
-  await call(configured.handle, reviewRequest())
-  assert.equal(configured.reroutes[0].provider, 'deepseek-official')
-  assert.equal(configured.reroutes[0].reasoningEffort, 'low')
-
-  const disabled = mount({ providers, config: { review: { enabled: false } } })
-  assert.equal((await call(disabled.handle, reviewRequest())).passedThrough, true)
-  assert.equal(disabled.reroutes.length, 0)
-
-  // Already on the target route: do not recurse, let the owning adapter handle it.
-  const onTarget = mount({ providers })
-  const { passedThrough } = await call(onTarget.handle, reviewRequest({ provider: 'deepseek-account', model: 'deepseek-flash' }))
-  assert.equal(passedThrough, true)
-  assert.equal(onTarget.reroutes.length, 0)
-})
-
-test('an unregistered reviewer provider falls back to the owner', async () => {
+test('reviewer calls are left to the dedicated reviewer-model plugin', async () => {
   const providers = { gateway: routeProfile('http://127.0.0.1:9') }
   const { handle, reroutes } = mount({ providers })
   const { passedThrough } = await call(handle, reviewRequest())
