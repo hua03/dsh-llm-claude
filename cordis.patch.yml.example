@@ -1,0 +1,48 @@
+# Reference patch for mounting the plugin into a profile.
+# Merge into ~/.dsh/profiles/web/cordis.patch.yml (entries with an `id` only
+# modify existing rows; a new plugin must be added inside `insert`).
+
+- insert:
+    - id: llm-claude-gateway
+      name: '@hua03/dsh-llm-claude'
+      config:
+        provider: claude-gateway
+        displayName: 该网关 Claude
+        baseURL: https://gateway.example.com/api
+        apiKeyEnv: GATEWAY_API_KEY
+        auth:
+          header: x-api-key
+        claudeCodeCompat:
+          mode: auto
+          identityBlocks: true
+          userAgent: "claude-cli/2.1.293 (external, cli)"
+          headers:
+            x-app: cli
+          metadataUserId: true
+          toolSchema: names-only
+        thinking:
+          mode: auto
+        reasoningEffort: high
+        cacheRetention: short
+        maxTokens: 64000
+        streamIdleTimeoutMs: 300000
+        models:
+          - id: claude-haiku-5-5
+            name: Claude Haiku 5.5
+            contextWindow: 200000
+            maxTokens: 64000
+            inputModalities: [text, image]
+            reasoning: false
+          - id: claude-opus-5-5
+            name: Claude Opus 5.5
+            contextWindow: 1000000
+            maxTokens: 128000
+            inputModalities: [text, image]
+            reasoning: adaptive
+            supportsTemperature: false
+          - id: claude-sonnet-5-5
+            name: Claude Sonnet 5.5
+            contextWindow: 1000000
+            maxTokens: 128000
+            inputModalities: [text, image]
+            reasoning: adaptive
