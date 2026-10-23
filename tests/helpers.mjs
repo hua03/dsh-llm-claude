@@ -1,11 +1,11 @@
 /**
- * Test helpers: a local Anthropic-compatible SSE endpoint and an adapter
- * factory that needs no cordis context.
+ * Test helpers: a local Anthropic-compatible SSE endpoint and an interceptor
+ * mounted over a fake DSH loader/credential store.
  */
 
 import http from 'node:http'
-import { ClaudeAdapter } from '../src/adapter.js'
-import { resolveAdapterOptions } from '../src/config.js'
+import { Config, plainOptions, resolveInterceptOptions } from '../src/config.js'
+import { createInterceptor } from '../src/interceptor.js'
 
 export function sse(event, data) {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -41,7 +41,6 @@ export function textBody({ text = 'hello', stopReason = 'end_turn', inputTokens 
 
 /** One tool-use response turn, optionally preceded by a thinking block. */
 export function toolBody({ withThinking = false } = {}) {
-  const thinkingIndex = 0
   const toolIndex = withThinking ? 1 : 0
   return [
     sse('message_start', {
@@ -61,20 +60,20 @@ export function toolBody({ withThinking = false } = {}) {
       ? [
           sse('content_block_start', {
             type: 'content_block_start',
-            index: thinkingIndex,
+            index: 0,
             content_block: { type: 'thinking', thinking: '', signature: '' },
           }),
           sse('content_block_delta', {
             type: 'content_block_delta',
-            index: thinkingIndex,
+            index: 0,
             delta: { type: 'thinking_delta', thinking: 'thinking text' },
           }),
           sse('content_block_delta', {
             type: 'content_block_delta',
-            index: thinkingIndex,
+            index: 0,
             delta: { type: 'signature_delta', signature: 'sig-1' },
           }),
-          sse('content_block_stop', { type: 'content_block_stop', index: thinkingIndex }),
+          sse('content_block_stop', { type: 'content_block_stop', index: 0 }),
         ]
       : []),
     sse('content_block_start', {
@@ -125,43 +124,79 @@ export async function mockServer(responses) {
   }
 }
 
-/** Adapter over the mock endpoint with stub auth/identity. */
-export function adapterFor(baseURL, overrides = {}, extra = {}) {
-  const config = {
-    provider: 'claude-mock',
-    displayName: 'Mock Claude',
+/** One pi-ai provider profile as a DSH profile would configure it. */
+export function routeProfile(baseURL, overrides = {}) {
+  return {
+    apiKeyEnv: 'GATEWAY_API_KEY',
+    api: 'anthropic-messages',
     baseURL,
-    apiKeyEnv: 'MOCK_CLAUDE_KEY',
+    displayName: 'test-claude',
     models: [
       {
         id: 'claude-haiku-5-5',
         name: 'Claude Haiku 5.5',
         contextWindow: 200000,
         maxTokens: 64000,
-        inputModalities: ['text', 'image'],
-        reasoning: false,
-        supportsTemperature: false,
+        input: ['text', 'image'],
+        reasoningEfforts: false,
+        compat: { supportsTemperature: false },
       },
       {
         id: 'claude-sonnet-5-5',
         name: 'Claude Sonnet 5.5',
         contextWindow: 1000000,
         maxTokens: 128000,
-        inputModalities: ['text', 'image'],
-        reasoning: 'adaptive',
+        input: ['text', 'image'],
+        compat: { forceAdaptiveThinking: true },
       },
     ],
-    claudeCodeCompat: { mode: 'auto' },
-    reasoningEffort: 'high',
-    streamIdleTimeoutMs: 5000,
     ...overrides,
   }
-  return new ClaudeAdapter({
-    options: () => resolveAdapterOptions(config),
-    resolveAuth: async () => ({ apiKey: 'sk-test' }),
-    deviceId: () => 'device-test',
-    ...extra,
-  })
+}
+
+/** Interceptor over a fake loader entry `llm-pi-ai` and a stub credential store. */
+export function mount({ providers, credential = 'sk-test', config = {}, attachments } = {}) {
+  const listeners = new Map()
+  const ctx = {
+    logger: { info() {}, warn() {} },
+    loader: {
+      *entries() {
+        yield { options: { id: 'llm-pi-ai', config: { providers } } }
+      },
+    },
+    get(name) {
+      if (name === 'credentials') {
+        return { resolve: async (ref) => (credential === null ? undefined : { value: credential, ref }) }
+      }
+      if (name === 'attachments') return attachments
+      return undefined
+    },
+    on(event, listener) {
+      listeners.set(event, listener)
+    },
+  }
+  const resolved = resolveInterceptOptions(plainOptions(Config(config)))
+  const handle = createInterceptor(ctx, { ...resolved, deviceId: () => 'device-test' })
+  return { ctx, handle, listeners }
+}
+
+/** Passthrough marker: proves the interceptor did not take the request over. */
+export function passthrough() {
+  return (async function* () {
+    yield { type: 'passthrough' }
+  })()
+}
+
+export async function call(handle, options) {
+  const chunks = []
+  let passedThrough = false
+  for await (const chunk of handle(options, () => {
+    passedThrough = true
+    return passthrough()
+  })) {
+    chunks.push(chunk)
+  }
+  return { chunks, passedThrough }
 }
 
 /** System + user messages matching the runtime's loop-built shape. */
@@ -173,13 +208,6 @@ export function basicMessages(text = 'say hello') {
       content: [{ type: 'text', text: 'Harness prompt.' }],
       source: { kind: 'system-prompt' },
     },
-    { role: 'user', id: 'm2', content: [{ type: 'text', text }], source: { kind: 'user' } },
+    { role: 'user', id: 'm2', content: [{ type: 'text', text: text }], source: { kind: 'user' } },
   ]
-}
-
-/** Collect one full adapter stream. */
-export async function collect(adapter, options) {
-  const chunks = []
-  for await (const chunk of adapter.stream(options)) chunks.push(chunk)
-  return chunks
 }

@@ -1,98 +1,126 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as plugin from '../src/index.js'
+import { basicMessages, call, mockServer, routeProfile, textBody, toolBody } from './helpers.mjs'
+import { mount } from './helpers.mjs'
 
-function fakeContext({ credential = 'sk-test' } = {}) {
-  const registered = []
-  const listeners = new Map()
-  const ctx = {
-    logger: { warn() {} },
-    get(name) {
-      if (name !== 'credentials') return undefined
-      return {
-        resolve: async () => (credential === null ? undefined : { value: credential, source: 'test' }),
-      }
-    },
-    on(event, listener) {
-      listeners.set(event, listener)
-    },
-    llm: {
-      registerAdapter(providers, adapter) {
-        const handle = () => {}
-        handle.replace = () => {}
-        registered.push({ providers, adapter, handle })
-        return handle
-      },
-    },
+function request(overrides = {}) {
+  return {
+    provider: 'gateway',
+    model: 'claude-haiku-5-5',
+    messages: basicMessages('hi'),
+    signal: AbortSignal.timeout(5000),
+    ...overrides,
   }
-  return { ctx, registered, listeners }
 }
 
-test('plugin exposes the cordis contract and registers exactly one route', () => {
+test('plugin is an interceptor: no provider route is registered', () => {
   assert.equal(plugin.name, 'llm-claude')
-  assert.deepEqual(plugin.inject, ['llm'])
+  assert.deepEqual(plugin.inject, ['llm', 'loader'])
   assert.equal(typeof plugin.Config, 'function')
   assert.equal(typeof plugin.apply, 'function')
 
-  const { ctx, registered } = fakeContext()
-  const config = plugin.Config({ provider: 'claude-test', baseURL: 'http://127.0.0.1:9' })
-  plugin.apply(ctx, config)
-  assert.equal(registered.length, 1)
-  assert.deepEqual(registered[0].providers, ['claude-test'])
-  assert.equal(registered[0].adapter.providerInfo('claude-test').id, 'claude-test')
-  assert.equal(registered[0].adapter.providerInfo('claude-test').name, 'claude-test')
-})
-
-test('invalid configuration fails at load time', () => {
-  const { ctx } = fakeContext()
-  assert.throws(
-    () => plugin.apply(ctx, plugin.Config({ provider: 'claude-test', baseURL: 'https://user:pass@example.com' })),
-    /must not embed credentials/,
-  )
-})
-
-test('missing credentials surface as MISSING_CREDENTIAL', async () => {
-  const { ctx, registered } = fakeContext({ credential: null })
-  plugin.apply(ctx, plugin.Config({ provider: 'claude-test', baseURL: 'http://127.0.0.1:9' }))
-  const adapter = registered[0].adapter
-  const conn = {
-    apiKeyEnv: 'MOCK_CLAUDE_KEY',
-    authHeader: 'x-api-key',
-    compat: { mode: 'auto', headers: {} },
-    anthropicBeta: [],
+  const registered = []
+  const ctx = {
+    logger: {},
+    on(event, listener) {
+      registered.push({ event, listener })
+    },
+    get() {
+      return undefined
+    },
+    loader: { entries: function* () {} },
   }
-  await assert.rejects(
-    adapter.dependencies.resolveAuth(conn),
-    (error) => error.code === 'MISSING_CREDENTIAL' && !String(error.message).includes('sk-test'),
+  plugin.apply(ctx, plugin.Config({}))
+  assert.deepEqual(registered.map((entry) => entry.event), ['llm/stream'])
+})
+
+test('non-Claude models and non-Messages routes pass through untouched', async () => {
+  const providers = {
+    gateway: routeProfile('http://127.0.0.1:9'),
+    other: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'OTHER_KEY', models: [] },
+  }
+  const { handle } = mount({ providers })
+
+  assert.equal((await call(handle, request({ model: 'deepseek-flash' }))).passedThrough, true)
+  assert.equal((await call(handle, request({ model: 'gpt-5' }))).passedThrough, true)
+  assert.equal(
+    (await call(handle, request({ provider: 'other', model: 'claude-haiku-5-5' }))).passedThrough,
+    true,
+  )
+  // Route that DSH does not describe (no loader entry) is left alone.
+  assert.equal(
+    (await call(handle, request({ provider: 'unconfigured', model: 'claude-haiku-5-5' }))).passedThrough,
+    true,
   )
 })
 
-test('resolved credentials are passed to pi-ai without leaking into config', async () => {
-  const { ctx, registered } = fakeContext({ credential: 'sk-test' })
-  plugin.apply(ctx, plugin.Config({ provider: 'claude-test', baseURL: 'http://127.0.0.1:9' }))
-  const conn = { apiKeyEnv: 'MOCK_CLAUDE_KEY', authHeader: 'x-api-key', compat: { mode: 'auto', headers: {} }, anthropicBeta: [] }
-  assert.deepEqual(await registered[0].adapter.dependencies.resolveAuth(conn), { apiKey: 'sk-test' })
+test('filters, disabled flag and missing credentials all fall back to the owner', async () => {
+  const providers = { gateway: routeProfile('http://127.0.0.1:9') }
+  const excluded = mount({ providers, config: { excludeProviders: ['gateway'] } })
+  assert.equal((await call(excluded.handle, request())).passedThrough, true)
 
-  conn.authHeader = 'authorization-bearer'
-  assert.deepEqual(await registered[0].adapter.dependencies.resolveAuth(conn), {
-    headers: { authorization: 'Bearer sk-test' },
-  })
+  const notIncluded = mount({ providers, config: { includeProviders: ['other'] } })
+  assert.equal((await call(notIncluded.handle, request())).passedThrough, true)
+
+  const disabled = mount({ providers, config: { enabled: false } })
+  assert.equal((await call(disabled.handle, request())).passedThrough, true)
+
+  const missingCredential = mount({ providers, credential: null })
+  assert.equal((await call(missingCredential.handle, request())).passedThrough, true)
 })
 
-test('models and reasoning metadata are advertised to the selection surfaces', async () => {
-  const { ctx, registered } = fakeContext()
-  plugin.apply(ctx, plugin.Config({ provider: 'claude-test', baseURL: 'http://127.0.0.1:9' }))
-  const adapter = registered[0].adapter
-  const models = await adapter.listModels('claude-test')
-  assert.deepEqual(models.map((model) => model.id), ['claude-haiku-5-5', 'claude-opus-5-5', 'claude-sonnet-5-5'])
-  const haiku = await adapter.resolveModel('claude-test', 'claude-haiku-5-5')
-  assert.equal(haiku.context.contextWindow, 200000)
-  assert.equal(haiku.defaultMaxTokens, 64000)
-  assert.equal(haiku.reasoning, undefined)
-  const sonnet = await adapter.resolveModel('claude-test', 'claude-sonnet-5-5')
-  assert.ok(sonnet.reasoning.efforts.some((effort) => effort.id === 'high'))
-  // Unlisted model ids still route (core routing, not the catalog, validates requests).
-  const unlisted = await adapter.resolveModel('claude-test', 'claude-unlisted')
-  assert.equal(unlisted.id, 'claude-unlisted')
-  assert.equal(unlisted.context.contextWindow, 262144)
+test('matching requests reuse the existing route profile and credential', async () => {
+  const server = await mockServer([toolBody(), textBody({ text: 'listed' })])
+  try {
+    const providers = { gateway: routeProfile(server.baseURL) }
+    const { handle, ctx } = mount({ providers, credential: 'sk-from-store' })
+
+    const first = await call(handle, request())
+    assert.equal(first.passedThrough, false)
+    const toolEnd = first.chunks.find((chunk) => chunk.type === 'block-end' && chunk.block.type === 'tool-call')
+    assert.equal(toolEnd.block.name, 'bash')
+
+    const http = server.captured[0]
+    assert.match(http.url, /^\/v1\/messages/)
+    assert.equal(http.headers['user-agent'], 'claude-cli/2.1.293 (external, cli)')
+    assert.equal(http.headers['x-app'], 'cli')
+    assert.match(http.headers['x-dsh-attribution'], /^deepseek-harness\//)
+    // Credential came from the same apiKeyEnv the route already used.
+    assert.equal(http.headers['x-api-key'], 'sk-from-store')
+    // No route/model config was duplicated anywhere.
+    assert.equal(ctx.loader !== undefined, true)
+
+    assert.deepEqual(
+      http.body.system.map((block) => block.text),
+      [
+        "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+        'You are an interactive agent that helps users with software engineering tasks.',
+        'Harness prompt.',
+      ],
+    )
+    assert.deepEqual(http.body.tools, undefined)
+    const userId = JSON.parse(http.body.metadata.user_id)
+    assert.deepEqual(userId, { device_id: 'device-test', account_uuid: '', session_id: '' })
+    assert.equal(first.chunks.at(-1).reason.kind, 'tool-calls')
+  } finally {
+    await server.close()
+  }
+})
+
+test('route headers are preserved and compat headers are merged over them', async () => {
+  const server = await mockServer([textBody()])
+  try {
+    const providers = {
+      gateway: routeProfile(server.baseURL, { headers: { 'x-route': 'yes', 'x-app': 'route' } }),
+    }
+    const { handle } = mount({ providers })
+    await call(handle, request())
+    const http = server.captured[0]
+    assert.equal(http.headers['x-route'], 'yes')
+    // compat default wins for the gateway marker.
+    assert.equal(http.headers['x-app'], 'cli')
+  } finally {
+    await server.close()
+  }
 })

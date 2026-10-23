@@ -1,70 +1,51 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { Config, DEFAULT_MODELS, plainOptions, resolveAdapterOptions } from '../src/config.js'
+import { Config, plainOptions, resolveInterceptOptions } from '../src/config.js'
 
 function resolve(overrides = {}) {
-  return resolveAdapterOptions({ provider: 'claude-test', ...overrides })
+  return resolveInterceptOptions(plainOptions(Config(overrides)))
 }
 
-test('schema applies documented defaults', () => {
-  const config = Config({ provider: 'claude-test' })
-  const plain = plainOptions(config)
-  assert.equal(plain.baseURL, 'https://api.anthropic.com')
-  assert.equal(plain.apiKeyEnv, 'ANTHROPIC_API_KEY')
-  assert.equal(plain.auth.header, 'x-api-key')
-  assert.equal(plain.claudeCodeCompat.mode, 'auto')
+test('schema defaults describe a no-op-safe interceptor', () => {
+  const plain = plainOptions(Config({}))
+  assert.equal(plain.enabled, true)
+  assert.deepEqual(plain.includeProviders, [])
+  assert.deepEqual(plain.excludeProviders, [])
+  assert.equal(plain.claudeCodeCompat.identityBlocks, true)
+  assert.equal(plain.claudeCodeCompat.userAgent, 'claude-cli/2.1.293 (external, cli)')
+  assert.deepEqual(plain.claudeCodeCompat.headers, { 'x-app': 'cli' })
   assert.equal(plain.claudeCodeCompat.toolSchema, 'names-only')
-  assert.equal(plain.reasoningEffort, 'high')
-  assert.equal(plain.cacheRetention, 'short')
-  assert.equal(plain.models.length, DEFAULT_MODELS.length)
-  const resolved = resolveAdapterOptions(plain)
-  assert.equal(resolved.provider, 'claude-test')
-  assert.equal(resolved.compat.userAgent, 'claude-cli/2.1.293 (external, cli)')
-  assert.equal(resolved.models.length, 3)
-  assert.equal(resolved.modelsById.get('claude-haiku-5-5').reasoning, false)
-  assert.equal(resolved.modelsById.get('claude-opus-5-5').reasoning, 'adaptive')
-  assert.equal(resolved.modelsById.get('claude-opus-5-5').supportsTemperature, false)
-  assert.equal(resolved.retryPolicy.maxRetries, 5)
+  assert.equal(plain.claudeCodeCompat.thinking, 'auto')
+  assert.equal(plain.maxRequestImagesBytes, 20971520)
+  assert.equal(plain.debug, false)
+
+  const resolved = resolve({})
+  assert.equal(resolved.enabled, true)
+  assert.equal(resolved.compat.mode, 'auto')
+  assert.equal(resolved.compat.thinkingMode, 'auto')
+  // No endpoint/credential/model fields exist: those come from the route.
+  assert.equal('baseURL' in resolved, false)
+  assert.equal('apiKeyEnv' in resolved, false)
 })
 
-test('baseURL must be a credential-free http(s) URL', () => {
-  assert.throws(() => resolve({ baseURL: 'ftp://example.com' }), /must be http\(s\)/)
-  assert.throws(() => resolve({ baseURL: 'https://user:pass@example.com' }), /must not embed credentials/)
-  assert.throws(() => resolve({ baseURL: 'https://example.com/?x=1' }), /must not carry a query/)
-  assert.equal(resolve({ baseURL: 'https://gateway.example.com/api' }).baseURL, 'https://gateway.example.com/api')
-})
-
-test('provider and models are validated', () => {
-  assert.throws(() => resolveAdapterOptions({}), /provider must be a non-empty route key/)
+test('enums and header values are validated', () => {
   assert.throws(
-    () => resolve({ models: [{ id: 'claude-a' }, { id: 'claude-a' }] }),
-    /lists model "claude-a" twice/,
+    () => resolve({ claudeCodeCompat: { toolSchema: 'weird' } }),
+    /toolSchema/,
   )
+  assert.throws(() => resolve({ claudeCodeCompat: { thinking: 'always' } }), /thinking/)
+  assert.throws(() => resolve({ claudeCodeCompat: { userAgent: '' } }), /userAgent must not be empty/)
   assert.throws(
-    () =>
-      resolve({
-        models: [{ id: 'gpt-x' }],
-        claudeCodeCompat: { mode: 'auto' },
-      }),
-    /no model id starts with "claude-"/,
-  )
-  // compat off allows a non-Claude catalog on the same adapter.
-  assert.equal(
-    resolve({ models: [{ id: 'gpt-x' }], claudeCodeCompat: { mode: 'off' } }).models[0].id,
-    'gpt-x',
+    () => resolve({ claudeCodeCompat: { headers: { 'bad header': 'x' } } }),
+    /not a single-line/,
   )
 })
 
-test('reasoning and compat enums are validated', () => {
-  assert.throws(() => resolve({ reasoningEffort: 'turbo' }), /reasoningEffort must be one of/)
-  assert.throws(
-    () => resolve({ claudeCodeCompat: { mode: 'auto', toolSchema: 'weird' } }),
-    /toolSchema must be names-only or claude-code/,
-  )
-  assert.throws(() => resolve({ claudeCodeCompat: { mode: 'auto', headers: { 'bad header': 'x' } } }), /not a single-line/)
-  assert.equal(resolve({ thinking: { mode: 'off' } }).thinkingMode, 'off')
-})
-
-test('apiKeyEnv must be a credential reference', () => {
-  assert.throws(() => resolve({ apiKeyEnv: 'not a ref' }))
+test('provider filters and image budget are validated', () => {
+  assert.throws(() => resolve({ includeProviders: [''] }), /non-empty route keys/)
+  assert.throws(() => resolve({ maxRequestImagesBytes: 0 }), /maxRequestImagesBytes/)
+  assert.deepEqual(resolve({ includeProviders: ['gateway'], excludeProviders: ['other'] }).includeProviders, [
+    'gateway',
+  ])
+  assert.equal(resolve({ enabled: false }).enabled, false)
 })
