@@ -17,7 +17,7 @@
  * @module dsh-llm-claude/interceptor
  */
 
-import { assertUsableApiKey } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { findProviderRoute } from './routes.js'
 import { streamClaude } from './claude-stream.js'
@@ -68,6 +68,16 @@ export function createInterceptor(ctx, config) {
     const entry = connection.models.find((model) => model.id === options.model)
     if (entry === undefined) return next()
 
+    // A loop-built request is the agent conversation. Hand-built requests are
+    // internal one-shot calls (auto-review, session title, compaction) whose
+    // prompts are protocols of their own: they still need the gateway disguise
+    // (headers/metadata), but injecting the agent persona or a thinking default
+    // there changes what those callers asked for. auto-review in particular
+    // requires one JSON object, and a persona prompt made it answer as a coding
+    // agent instead.
+    const loopRequest = isAgentLoopRequest(options)
+    const compat = loopRequest ? config.compat : { ...config.compat, identityBlocks: false, loop: false }
+
     return (async function* () {
       const resolved = await resolveCredential(ctx, connection.apiKeyEnv)
       if (resolved === undefined) {
@@ -77,7 +87,7 @@ export function createInterceptor(ctx, config) {
       }
       const apiKey = assertUsableApiKey(resolved.value, 'llm-claude', connection.apiKeyEnv)
       if (config.debug) ctx.logger?.info?.(`llm-claude: intercepting ${options.provider}/${options.model}`)
-      yield* streamClaude(options, connection, entry, config.compat, { apiKey }, {
+      yield* streamClaude(options, connection, entry, compat, { apiKey }, {
         attachments: ctx.get('attachments'),
         deviceId: config.deviceId,
         maxRequestImagesBytes: config.maxRequestImagesBytes,

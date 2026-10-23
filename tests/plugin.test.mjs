@@ -1,17 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as plugin from '../src/index.js'
-import { basicMessages, call, mockServer, routeProfile, textBody, toolBody } from './helpers.mjs'
-import { mount } from './helpers.mjs'
+import { basicMessages, call, loopRequest, mount, mockServer, routeProfile, textBody, toolBody } from './helpers.mjs'
 
 function request(overrides = {}) {
-  return {
+  return loopRequest({
     provider: 'gateway',
     model: 'claude-haiku-5-5',
     messages: basicMessages('hi'),
     signal: AbortSignal.timeout(5000),
     ...overrides,
-  }
+  })
 }
 
 test('plugin is an interceptor: no provider route is registered', () => {
@@ -103,6 +102,53 @@ test('matching requests reuse the existing route profile and credential', async 
     const userId = JSON.parse(http.body.metadata.user_id)
     assert.deepEqual(userId, { device_id: 'device-test', account_uuid: '', session_id: '' })
     assert.equal(first.chunks.at(-1).reason.kind, 'tool-calls')
+  } finally {
+    await server.close()
+  }
+})
+
+test('internal one-shot calls keep their own prompt and sampling protocol', async () => {
+  const server = await mockServer([textBody({ text: '{"risk":"low","decision":"allow"}' })])
+  try {
+    const opusRoute = routeProfile(server.baseURL, {
+      models: [
+        {
+          id: 'claude-opus-5-5',
+          name: 'Claude Opus 5.5',
+          contextWindow: 1000000,
+          maxTokens: 128000,
+          input: ['text', 'image'],
+          compat: { supportsTemperature: true },
+        },
+      ],
+    })
+    const { handle } = mount({ providers: { gateway: opusRoute } })
+    // The shape auto-review builds: fixed policy as system, one user payload,
+    // temperature 0, and no agent-loop marker.
+    const review = {
+      provider: 'gateway',
+      model: 'claude-opus-5-5',
+      system: 'REVIEW_POLICY: reply with exactly one JSON object.',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'PENDING_ACTION {...}' }] }],
+      temperature: 0,
+      signal: AbortSignal.timeout(5000),
+    }
+    const { passedThrough } = await call(handle, review)
+    assert.equal(passedThrough, false)
+
+    const http = server.captured[0]
+    // The reviewer's own system prompt survives untouched: no agent persona.
+    assert.equal(http.body.system.length, 1)
+    assert.equal(http.body.system[0].text, review.system)
+    // No thinking default was invented for an internal call.
+    assert.ok(http.body.thinking === undefined || http.body.thinking.type === 'disabled')
+    assert.equal(http.body.output_config, undefined)
+    // Its explicit sampling control still reaches the wire.
+    assert.equal(http.body.temperature, 0)
+    // The gateway disguise itself still applies.
+    assert.equal(http.headers['user-agent'], 'claude-cli/2.1.293 (external, cli)')
+    assert.ok(http.headers['x-api-key'])
+    assert.ok(JSON.parse(http.body.metadata.user_id).device_id)
   } finally {
     await server.close()
   }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { call, mockServer, mount, routeProfile, textBody } from './helpers.mjs'
+import { call, loopRequest, mockServer, mount, routeProfile, textBody } from './helpers.mjs'
 
 const IMAGE_BYTES = Buffer.from('fake-png-bytes')
 
@@ -35,13 +35,14 @@ function imageMessages() {
   ]
 }
 
-const request = (overrides = {}) => ({
-  provider: 'gateway',
-  model: 'claude-haiku-5-5',
-  messages: imageMessages(),
-  signal: AbortSignal.timeout(5000),
-  ...overrides,
-})
+const request = (overrides = {}) =>
+  loopRequest({
+    provider: 'gateway',
+    model: 'claude-haiku-5-5',
+    messages: imageMessages(),
+    signal: AbortSignal.timeout(5000),
+    ...overrides,
+  })
 
 test('images are sent inline as base64 beside their durable handle text', async () => {
   const server = await mockServer([textBody()])

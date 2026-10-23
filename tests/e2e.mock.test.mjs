@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { basicMessages, call, mockServer, routeProfile, textBody, toolBody, mount } from './helpers.mjs'
+import { basicMessages, call, loopRequest, mockServer, routeProfile, textBody, toolBody, mount } from './helpers.mjs'
 
-const request = (overrides = {}) => ({
-  provider: 'gateway',
-  model: 'claude-haiku-5-5',
-  messages: basicMessages('go'),
-  signal: AbortSignal.timeout(5000),
-  ...overrides,
-})
+const request = (overrides = {}) =>
+  loopRequest({
+    provider: 'gateway',
+    model: 'claude-haiku-5-5',
+    messages: basicMessages('go'),
+    signal: AbortSignal.timeout(5000),
+    ...overrides,
+  })
 
 test('a tool round-trip keeps wire names on the wire and harness names locally', async () => {
   const server = await mockServer([toolBody(), textBody({ text: 'listed' })])

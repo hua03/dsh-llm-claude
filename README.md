@@ -54,6 +54,8 @@ dsh plugin --profile web add file:/Users/huahao/workspace/Project/github/dsh-llm
 
 **已知偏离**：网关要求 `User-Agent: claude-cli/...`，而 DSH 归因契约要求每个 provider 请求带 harness UA。接管时把 UA 让给网关，并用 `x-dsh-attribution` 头保留 harness 身份。
 
+> 回归说明：早期版本把身份块与 thinking 默认也套到了 auto-review 的评审调用上，导致评审模型按"编码 agent"口吻回答、不输出协议要求的 JSON，所有工具调用被 Auto review 拦下。修复方式是只对 `markAgentLoopRequest` 标记的对话请求做完整伪装，内部一次性调用只保留网关头/metadata。
+
 ## 配置（可选）
 
 默认值开箱可用；需要限制范围或调细节时，按 id 覆盖 bundle 插入的那一行：
@@ -81,12 +83,12 @@ dsh plugin --profile web add file:/Users/huahao/workspace/Project/github/dsh-llm
 ## 验证
 
 ```bash
-node --test tests/*.test.mjs     # 38 个单元/集成测试（本地 mock SSE 全链路）
+node --test tests/*.test.mjs     # 39 个单元/集成测试（本地 mock SSE 全链路）
 node scripts/smoke.mjs           # 打印接管后的真实请求体/头与 chunk
 node scripts/smoke.mjs --thinking
 ```
 
-覆盖：触发/透传判定、路由配置与凭据复用、compat 规则与幂等、replay 签名回放/降级、事件→chunk、错误分类、两轮工具往返、adaptive thinking（含辅助调用不强制思考）、429 分类、图片 base64/预算/offload、`claude-code` schema 模式。
+覆盖：触发/透传判定、路由配置与凭据复用、compat 规则与幂等、内部一次性调用保留自身协议、replay 签名回放/降级、事件→chunk、错误分类、两轮工具往返、adaptive thinking（含辅助调用不强制思考）、429 分类、图片 base64/预算/offload、`claude-code` schema 模式。
 
 真机验证（需要网关 key；本机未内置）：
 

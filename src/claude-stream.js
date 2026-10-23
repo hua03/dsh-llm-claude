@@ -146,9 +146,10 @@ async function* withIdleTimeout(events, timeoutMs, signal) {
  */
 export async function* streamClaude(options, conn, entry, compat, auth, deps) {
   const piModel = toPiModel(conn, entry, compat)
-  // Auxiliary calls (session title, compaction) must not acquire thinking just
-  // because the route has a default effort.
-  const fallbackEffort = options.purpose === undefined ? conn.reasoningEffort : undefined
+  // Only the agent conversation inherits the route's default thinking level;
+  // internal one-shot callers (auto-review, session title, compaction) get their
+  // own explicit controls, if any.
+  const fallbackEffort = compat.loop === false || options.purpose !== undefined ? undefined : conn.reasoningEffort
   const { effort, disableThinking } = resolveEffort(options.reasoningEffort, conn, piModel, compat, fallbackEffort)
   const { context } = await toPiContext(options, {
     attachments: deps.attachments,

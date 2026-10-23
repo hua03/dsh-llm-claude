@@ -4,8 +4,14 @@
  */
 
 import http from 'node:http'
+import { markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { Config, plainOptions, resolveInterceptOptions } from '../src/config.js'
 import { createInterceptor } from '../src/interceptor.js'
+
+/** Mark a request as assembled by the agent loop (the real conversation path). */
+export function loopRequest(options) {
+  return markAgentLoopRequest(options)
+}
 
 export function sse(event, data) {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
