@@ -35,7 +35,7 @@ const REVIEW_MARKER = 'REVIEW_POLICY\n'
 
 /**
  * Whether this request is auto-review's internal reviewer call. Choosing the
- * reviewer model belongs to a dedicated plugin (`@hua03/dsh-auto-review-model`);
+ * reviewer model belongs to a dedicated plugin (`@huahao/dsh-auto-review-model`);
  * this plugin only declines to disguise it, because the reviewer must emit one
  * strict JSON object and a coding-agent persona prompt breaks that protocol.
  */

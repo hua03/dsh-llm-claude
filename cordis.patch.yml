@@ -1,4 +1,4 @@
-# Default profile layer for @hua03/dsh-llm-claude.
+# Default profile layer for @huahao/dsh-llm-claude.
 #
 # This package is a bundle, so `dsh plugin add` applies this patch automatically.
 # The plugin is an interceptor, not a provider:
@@ -10,7 +10,7 @@
 
 - insert:
     - id: llm-claude-compat
-      name: '@hua03/dsh-llm-claude'
+      name: '@huahao/dsh-llm-claude'
       config:
         enabled: true
         # includeProviders: [gateway]   # empty = every reusable anthropic-messages route

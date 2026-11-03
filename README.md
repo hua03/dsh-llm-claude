@@ -1,4 +1,4 @@
-# @hua03/dsh-llm-claude
+# @huahao/dsh-llm-claude
 
 在 DeepSeek Harness（DSH）里为**已有的 Claude 路由**加上 Claude Code 客户端兼容，面向 `claude-cli` 特征的 Anthropic 兼容网关。
 
@@ -21,7 +21,10 @@ DSH LlmRuntime.stream(GenerateOptions)
 包声明了 `dsh.bundle.patch`，`dsh plugin add` 会自动把本包加入 `dsh.profile.bundles` 并应用默认配置——**不需要改 profile 的 yml、不需要新增 key、不需要新 route**：
 
 ```bash
-dsh plugin --profile web add file:/Users/huahao/workspace/Project/github/dsh-llm-claude
+# 从 npm 安装
+dsh plugin --profile web add @huahao/dsh-llm-claude
+# 或从本地仓库安装（改了源码时）
+dsh plugin --profile web add file:/path/to/dsh-llm-claude
 # 重启 dsh web
 ```
 
@@ -54,11 +57,11 @@ dsh plugin --profile web add file:/Users/huahao/workspace/Project/github/dsh-llm
 
 **已知偏离**：网关要求 `User-Agent: claude-cli/...`，而 DSH 归因契约要求每个 provider 请求带 harness UA。接管时把 UA 让给网关，并用 `x-dsh-attribution` 头保留 harness 身份。
 
-> 回归说明：早期版本把身份块与 thinking 默认也套到了 auto-review 的评审调用上，导致评审模型按"编码 agent"口吻回答、不输出协议要求的 JSON。现在本插件对评审请求直接放行，由 `@hua03/dsh-auto-review-model` 负责换评审模型。
+> 回归说明：早期版本把身份块与 thinking 默认也套到了 auto-review 的评审调用上，导致评审模型按"编码 agent"口吻回答、不输出协议要求的 JSON。现在本插件对评审请求直接放行，由 `@huahao/dsh-auto-review-model` 负责换评审模型。
 
 ## 审核模型（Auto review）不在本插件里
 
-评审请求不套 Claude Code 伪装（评审必须输出单个 JSON 对象，身份提示会破坏协议），本插件遇到评审请求（`system` 以 `REVIEW_POLICY` 开头且无 `tools`）会直接放行。给评审换模型是独立插件：`@hua03/dsh-auto-review-model`（默认转发到 `deepseek-account/deepseek-flash`，可配置）。
+评审请求不套 Claude Code 伪装（评审必须输出单个 JSON 对象，身份提示会破坏协议），本插件遇到评审请求（`system` 以 `REVIEW_POLICY` 开头且无 `tools`）会直接放行。给评审换模型是独立插件：`@huahao/dsh-auto-review-model`（默认转发到 `deepseek-account/deepseek-flash`，可配置）。
 
 ## 配置（可选）
 

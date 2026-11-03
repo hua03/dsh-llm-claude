@@ -1,7 +1,6 @@
 {
-  "name": "@hua03/dsh-llm-claude",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@huahao/dsh-llm-claude",
+  "version": "0.1.1",
   "description": "Claude provider for DeepSeek Harness, with Claude Code gateway compatibility (pi-ai transport)",
   "type": "module",
   "main": "src/index.js",
@@ -12,22 +11,40 @@
   "files": [
     "src/**/*.js",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "node --test tests/e2e.mock.test.mjs"
   },
   "keywords": [
-    "dsh-plugin"
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "claude",
+    "anthropic"
   ],
+  "author": "hua03",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hua03/dsh-llm-claude.git"
+  },
+  "homepage": "https://github.com/hua03/dsh-llm-claude#readme",
+  "bugs": {
+    "url": "https://github.com/hua03/dsh-llm-claude/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-anonymous-user-id": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-attachment": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-anonymous-user-id": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-credentials": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0-0"
   },
   "dependencies": {
     "@deepseek-ai/cosmokit": "1.8.6",
