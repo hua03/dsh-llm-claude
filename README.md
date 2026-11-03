@@ -1,11 +1,11 @@
 # @huahao/dsh-llm-claude
 
-在 DeepSeek Harness（DSH）里为**已有的 Claude 路由**加上 Claude Code 客户端兼容，面向 `claude-cli` 特征的 Anthropic 兼容网关。
+在 DeepSeek Harness（DSH）里为**已有的 Claude 路由**加上 Claude Code 客户端兼容，面向要求 `claude-cli` 客户端特征的 Anthropic 兼容网关。
 
 它**不是**一个新的 provider：
 
 - 不注册路由、不定义模型目录、不设置 API key；
-- 复用 DSH 里已经配置好的 provider 路由（例如 `llm-pi-ai` 的 `gateway`）的 `baseURL`、`apiKeyEnv`、`headers`、模型 catalog 与凭据；
+- 复用 DSH 里已经配置好的 provider 路由（例如 `llm-pi-ai`）的 `baseURL`、`apiKeyEnv`、`headers`、模型 catalog 与凭据；
 - 只在满足条件时接管请求：`model` 以 `claude-` 开头 **且** 该路由的 `api` 是 `anthropic-messages`；
 - 其它模型、其它协议、未配置的路由、拿不到凭据的路由，全部原样交还给原插件（`next()`）。
 
@@ -28,7 +28,7 @@ dsh plugin --profile web add file:/path/to/dsh-llm-claude
 # 重启 dsh web
 ```
 
-前提：你的 profile 里已经有一条可复用的 Anthropic Messages 路由（本机即 `llm-pi-ai` 的 `gateway`，`apiKeyEnv: GATEWAY_API_KEY` 已在 `~/.dsh/.credentials.yaml` 中）。
+前提：你的 profile 里已经有一条可复用的 Anthropic Messages 路由（例如 `llm-pi-ai`，其 `apiKeyEnv` 指向的凭据已在 `~/.dsh/.credentials.yaml` 中）。
 
 ## 触发规则
 
@@ -72,7 +72,7 @@ dsh plugin --profile web add file:/path/to/dsh-llm-claude
 - id: llm-claude-compat
   config:
     enabled: true
-    includeProviders: [gateway]   # 空 = 所有可复用的 anthropic-messages 路由
+    includeProviders: [my-gateway]  # 空 = 所有可复用的 anthropic-messages 路由
     excludeProviders: []
     claudeCodeCompat:
       identityBlocks: true
@@ -97,14 +97,14 @@ node scripts/smoke.mjs --thinking
 
 覆盖：触发/透传判定、路由配置与凭据复用、compat 规则与幂等、内部一次性调用保留自身协议、replay 签名回放/降级、事件→chunk、错误分类、两轮工具往返、adaptive thinking（含辅助调用不强制思考）、429 分类、图片 base64/预算/offload、`claude-code` schema 模式。
 
-真机验证（需要网关 key；本机未内置）：
+真机验证（需要目标网关的 key）：
 
 ```bash
-export GATEWAY_API_KEY=...   # 或复用已有 ref；见下
+export GATEWAY_API_KEY=...
 dsh headless --profile web "list files in the current directory"
 ```
 
-> 接管用的是路由自己的 `apiKeyEnv`。若你的配置文件指向一个还没有值的 ref（例如新加 `GATEWAY_API_KEY`），把值放进 `~/.dsh/.env` 或启动环境即可；指向 `GATEWAY_API_KEY` 则无需任何新增。
+> 接管用的是路由自己的 `apiKeyEnv`。若你的配置文件指向一个还没有值的 ref（例如新加 `GATEWAY_API_KEY`），把值放进 `~/.dsh/.env` 或启动环境即可。
 
 ## 已知限制
 
