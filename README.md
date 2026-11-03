@@ -72,7 +72,7 @@ dsh plugin --profile web add file:/path/to/dsh-llm-claude
 - id: llm-claude-compat
   config:
     enabled: true
-    includeProviders: [my-gateway]  # 空 = 所有可复用的 anthropic-messages 路由
+    includeProviders: [gateway]  # 空 = 所有可复用的 anthropic-messages 路由
     excludeProviders: []
     claudeCodeCompat:
       identityBlocks: true
