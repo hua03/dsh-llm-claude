@@ -187,6 +187,7 @@ function mapHistoryMessage(message, compat) {
  *   sessionId?: string,
  *   deviceId?: string,
  *   disableThinking?: boolean,
+ *   omitDisabledThinking?: boolean,
  *   compat: {
  *     mode: string,
  *     identityBlocks?: boolean,
@@ -240,7 +241,12 @@ export function applyPayload(payload, context) {
     next.metadata = { ...(payload.metadata ?? {}), user_id: userId }
   }
 
-  if (context.disableThinking) next.thinking = { type: 'disabled' }
+  if (context.disableThinking) {
+    // Adaptive-only families reject `thinking: disabled`; for them the caller's
+    // "off" is the absence of the clause, so drop whatever the adapter built.
+    if (context.omitDisabledThinking === true) delete next.thinking
+    else next.thinking = { type: 'disabled' }
+  }
 
   return next
 }

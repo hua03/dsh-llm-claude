@@ -37,6 +37,12 @@ export function toPiModel(conn, entry, compat) {
     contextWindow: entry.contextWindow,
     maxTokens: entry.maxTokens,
     reasoning: reasoningMode !== 'off',
+    // Adaptive-only families (Claude 5.5+) no longer accept the legacy
+    // `thinking: {"type":"disabled"}` enum: the gateway forwards it upstream and
+    // the request dies with a 400 that reads as a generic upstream error. `off:
+    // null` tells pi-ai that "thinking off" means "omit the clause" instead,
+    // which those families accept and older models read as no thinking.
+    ...(reasoningMode === 'off' ? {} : { thinkingLevelMap: { off: null } }),
     compat: {
       forceAdaptiveThinking: reasoningMode === 'adaptive',
       supportsTemperature: entry.supportsTemperature,
@@ -181,6 +187,9 @@ export async function* streamClaude(options, conn, entry, compat, auth, deps) {
         sessionId: options.sessionId === undefined ? undefined : String(options.sessionId),
         deviceId: deps.deviceId?.(),
         disableThinking,
+        // Adaptive routes have no valid "disabled" spelling, so an explicit
+        // effort-off must drop the clause rather than emit the legacy enum.
+        omitDisabledThinking: piModel.compat?.forceAdaptiveThinking === true,
         compat,
       }),
   })

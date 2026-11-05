@@ -1,6 +1,6 @@
 {
   "name": "@huahao/dsh-llm-claude",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Claude provider for DeepSeek Harness, with Claude Code gateway compatibility (pi-ai transport)",
   "type": "module",
   "main": "src/index.js",

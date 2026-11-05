@@ -110,8 +110,21 @@ test('auxiliary calls do not acquire thinking from the route default', async () 
   try {
     const { handle } = mount({ providers: { gateway: routeProfile(server.baseURL) } })
     await call(handle, request({ model: 'claude-sonnet-5-5', purpose: 'session-title' }))
-    const thinking = server.captured[0].body.thinking
-    assert.ok(thinking === undefined || thinking.type === 'disabled')
+    // Adaptive-only families reject the legacy `disabled` enum with a 400, so an
+    // auxiliary call has to leave the clause out instead of spelling "off".
+    assert.equal(server.captured[0].body.thinking, undefined)
+    assert.equal(server.captured[0].body.output_config, undefined)
+  } finally {
+    await server.close()
+  }
+})
+
+test('an explicit effort off omits the thinking clause instead of spelling it disabled', async () => {
+  const server = await mockServer([textBody({ text: 'done' })])
+  try {
+    const { handle } = mount({ providers: { gateway: routeProfile(server.baseURL) } })
+    await call(handle, request({ model: 'claude-sonnet-5-5', reasoningEffort: 'off' }))
+    assert.equal(server.captured[0].body.thinking, undefined)
     assert.equal(server.captured[0].body.output_config, undefined)
   } finally {
     await server.close()

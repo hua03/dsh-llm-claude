@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { toPiModel } from '../src/claude-stream.js'
 import { toStreamChunks } from '../src/stream.js'
 
 const compat = { mode: 'auto', unknownToolPrefix: 'mcp__dsh__' }
@@ -119,4 +120,24 @@ test('a stream without a terminal event fails loudly', async () => {
     collect([{ type: 'text_start', contentIndex: 0, partial: assistant([]) }]),
     /ended without done\/error/,
   )
+})
+
+test('an adaptive pi model maps thinking off to an omitted clause', () => {
+  const model = toPiModel(
+    { provider: 'gateway', baseURL: 'https://gateway.example' },
+    {
+      id: 'claude-sonnet-5-5',
+      name: 'Claude Sonnet 5.5',
+      inputModalities: ['text', 'image'],
+      contextWindow: 1000000,
+      maxTokens: 128000,
+      reasoning: 'adaptive',
+      supportsTemperature: false,
+      supportsStrictTools: true,
+    },
+    { thinkingMode: 'auto' },
+  )
+  assert.equal(model.reasoning, true)
+  assert.equal(model.compat.forceAdaptiveThinking, true)
+  assert.deepEqual(model.thinkingLevelMap, { off: null })
 })

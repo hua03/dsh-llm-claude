@@ -53,7 +53,9 @@ dsh plugin --profile web add file:/path/to/dsh-llm-claude
 | 历史一致 | 声明与历史 `tool_use` 同名同参；响应侧再还原成 harness 名字 |
 | Bash 时间单位 | 对外 `timeout`(ms) ↔ harness `timeoutMs` |
 | `toolSchema: claude-code` | Edit 换成 Claude Code schema（无 `replace_all`）、Bash 暴露 `timeout`、Grep 追加行为说明；默认 `names-only` 保留 harness 的 `workdir`/`sandbox_permissions` |
-| thinking | 请求显式 `off` 或 `compat.thinking: off` 时强制 `thinking:{type:"disabled"}` 且不回传历史 thinking；普通对话沿用路由的 `reasoning` 默认（无则 `high`）；标题/压缩等辅助调用不套用该默认 |
+| thinking | 请求显式 `off` 或 `compat.thinking: off` 时**省略** `thinking` 字段（旧式模型回退为 `{type:"disabled"}`）且不回传历史 thinking；普通对话沿用路由的 `reasoning` 默认（无则 `high`）并请求 adaptive thinking；标题/压缩等辅助调用不套用该默认，同样省略字段 |
+
+> 为什么「关闭思考」是省略字段而不是 `{"type":"disabled"}`：新代 Claude（5.5+）的 adaptive thinking 只接受 `adaptive`，`disabled`/`enabled` 这类旧枚举会被上游判 400（网关包装成 `upstream_error`）。省略字段在旧式模型上等价于关闭思考，在新代模型上表示「不干预」。历史 bug：辅助调用（压缩、会话标题）曾因显式 `disabled` 全部 400 失败。
 
 **已知偏离**：网关要求 `User-Agent: claude-cli/...`，而 DSH 归因契约要求每个 provider 请求带 harness UA。接管时把 UA 让给网关，并用 `x-dsh-attribution` 头保留 harness 身份。
 
